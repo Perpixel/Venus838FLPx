@@ -271,55 +271,6 @@ class Venus838FLPx(object):
             return 0
                 
         return buf[4]
-
-        def GetVersion(self):
-                response = send([0x02,0x00], s, 0x80)
-        
-                if (response < 4 or response[4] != 0x80):
-                        return
-                
-                print('Type: {0}'.format(response[4]))
-                Kversion = (response[5] << 24) | (response[6]<<16) | (response[7]<<8) | response[8];
-                print('Kversion: {0}'.format(Kversion))
-                ODMversion = (response[9]<<24)|(response[10]<<16)|(response[11]<<8)|response[12];
-                print('ODMversion: {0}'.format(ODMversion))
-                Revision = (response[13]<<24)|(response[14]<<16)|(response[15]<<8)|response[16];
-                print('Revision: {0}'.format(Revision))
-                
-                chksum = checksum(response[4:17])
-                
-                if (response[17] != chksum):
-                        print('Checksum error')
-                        return False
-        
-                return True
-
-        def GetGNSSNavigationMode():
-                GETNAVMODE = [0x64,0x18]
-                send(GETNAVMODE, s)
-                
-                c = 0
-                data = [0x00] * 128
-                
-                while s.inWaiting() != 0:
-                        data[c] = ord(s.read())
-                        c += 1
-        
-                s.flushInput()
-                s.flushOutput()
-                
-                if (data[4] != 0x83):
-                        return
-                
-                print(data[16])
-                
-                chksum = checksum(data[14:17])
-                
-                if (data[17] != chksum):
-                        print('Checksum error')
-                        return False
-        
-                return True  
     
     def GetSerialDevice(self):
         return self.__device
