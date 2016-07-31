@@ -9,7 +9,7 @@ class venus838flpx(object):
     Based on, https://github.com/smokingresistor/TeensyGPS
     """
 
-    __DEBUG = True
+    __DEBUG = False
     __device = None
 
     BAUDRATE_4800 = 0
@@ -167,14 +167,12 @@ class venus838flpx(object):
         MessageID, 0x64, 0x18
         Response 0x8B
         """
-        response = self.__send([0x64,0x18], 0x8B)
+        response = self.__send([0x64,0x18], 0x64)
 
-        print(response)
-
-        if (response < 4 or response[4] != 0x8B):
+        if (response < 4 or response[4] != 0x64):
             return -1
 
-        return 1
+        return response[5]
 
     def GetVersion(self):
         """Get software version of the GPS module
@@ -184,7 +182,8 @@ class venus838flpx(object):
         response = self.__send([0x02,0x00], 0x80)
 
         if (response < 19 or response[4] != 0x80):
-            return
+            print (response)
+            return -1
         
         print('Type: {0}'.format(response[4]))
         Kversion = (response[5] << 24) | (response[6]<<16) | (response[7]<<8) | response[8];
@@ -196,16 +195,16 @@ class venus838flpx(object):
         
         return True   
     
-    def __receive(self, timeout=0):
+    def __receive(self, timeout=1):
         """Receive message from the GPS module. Return only binary answer messages. 
         """      
-        t = time() + (1 + timeout)
+        t = time() + timeout
         
         c = 0
         e = 0
 
-        buffer = [0x00] * 128
-        buffer_all = [0x00] * 2048
+        buffer = [0x00] * 4096
+        buffer_all = [0x00] * 4096
 
         header = [160, 161]
         payloadlen = 0
@@ -213,10 +212,18 @@ class venus838flpx(object):
         try:
             while time() < t:
                 while self.__device.inWaiting() != 0:
-                    char = ord(self.__device.read())
+
+                    char = ord(self.__device.read())    
+              
                     if self.__DEBUG:
                         buffer_all[e] = char
                         e += 1
+
+                    if (c == 0) and char != 160:
+                        pass
+                    elif (c == 1) and char != 161:
+                        pass
+
                     if (c < 2):
                         if (char == header[c]):
                             buffer[c] = char
@@ -243,8 +250,12 @@ class venus838flpx(object):
                 print('<<<'),
                 print(buffer_all)
                 print('[Venus838FLPx]: Critical error while receiving data!')
-            return -1
+                self.__device.reset_input_buffer();
+            return -2
+        if self.__DEBUG:
+            print(buffer_all[:e])
 
+        self.__device.reset_input_buffer();
         return -1
     
     def __send(self, message, msgid):
@@ -275,46 +286,56 @@ class venus838flpx(object):
         data[c - 2] = 0x0D
         data[c - 1] = 0x0A
 
-        self.__device.flushInput()
-        self.__device.flushOutput()
+        self.__device.reset_input_buffer();
+        self.__device.reset_output_buffer();
 
         if self.__DEBUG:
             print('>>>'),
             print(data)
+
         self.__device.write(data)
-        
+        self.__device.flush()
+
         buf = self.__receive()
+
         if buf == -1:
             if self.__DEBUG:
                 print('Error: Receive command timeout.')
+            sleep(0.1)
             return -1
         
         l = len(buf)
-        
+
+        result = None        
+
         if buf[0] != 0xA0 or buf[1] != 0xA1:
             if self.__DEBUG:
                 print('Error: Message unrecognized.')
-            return -1
+            result = -1
         
-        if buf[l-2] != 0x0D or buf[l-1] != 0x0A:
+        elif buf[l-2] != 0x0D or buf[l-1] != 0x0A:
             if self.__DEBUG:
                 print('Error: Message imcomplete.')
-            return -1       
+            result = -1       
         
-        if buf[4] == 0x83:
+        elif buf[4] == 0x83:
             if self.__DEBUG:
                 print('ACK')
             if msgid != 0:
                 buf = self.__receive()
-                return buf
-            return 1
+                result = buf
+            else:
+                result = 1
                 
-        if buf[4] == 0x84:
+        elif buf[4] == 0x84:
             if self.__DEBUG:
                 print('NACK')
-            return 0
-                
-        return buf[4]
+            result = 0
+        else:
+            result = buf[4]
+
+        sleep(0.01)
+        return result
     
     def GetSerialDevice(self):
         """Return serial device.
@@ -324,32 +345,41 @@ class venus838flpx(object):
     def __init__(self, PORT, UPDATE_RATE = 1):
         """Init GPS Module and set default configuration.
         """
+        print('Configure serial port...')
         self.__device = serial.Serial(PORT, baudrate=9600, timeout=1)
-
         self.SetDeviceBaudrate(baudrate=self.BAUDRATE_115200) # 115200
         print('Change message type...')
         self.SetMessageType() # default NMEA
-        print('Change navigation mode...')
-        self.SetGNSSNavigationMode() # default auto
         print('Configure NMEA message interval...')
         self.SetNMEAMessageInterval() # default GGA and RMC
         print('Change update rate...')
         self.SetPositionUpdateRate(rate=UPDATE_RATE) # default 1hz
+        print('Change navigation mode...')
+        self.SetGNSSNavigationMode() # default auto
 
-
+'''
 # Test
+print('Testing venus838flpx class...')
+
 import pynmea2
 
-gps = venus838flpx('/dev/ttyO1', 10)
+gps = venus838flpx('/dev/ttyO1', 1)
 
 device = None
 
 while device == None:
     device = gps.GetSerialDevice()
 
-print('Navigation mode: ')
-gps.GetGNSSNavigationMode()
+print('Binary mode: ')
+gps.SetMessageType()
+
+print('Set nav mode to 3: ')
+gps.SetGNSSNavigationMode(3)
+print('Navigation mode: {0}'.format(gps.GetGNSSNavigationMode()))
+
+print('Get firmware version: ')
 gps.GetVersion()
+
 c = 0
 
 lat = None
@@ -361,14 +391,14 @@ qual = None
 heading = None
 alt = None
 
-'''
-while c < 100:
+while c < 10:
         c += 1
         streamreader = pynmea2.NMEAStreamReader(device)
         sample_data_count = 0
 
         try:
             for msg in streamreader.next():
+                #print(msg)
                 if msg.sentence_type == 'GGA':
 
 

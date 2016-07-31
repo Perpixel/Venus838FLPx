@@ -45,3 +45,6 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+.vs/public/v14/.suo
+.vs/Project/v14/.suo
+*.sln
