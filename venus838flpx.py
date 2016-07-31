@@ -21,15 +21,7 @@ class venus838flpx(object):
     BAUDRATE_230400 = 6
     BAUDRATE_460800 = 7
     BAUDRATE_921600 = 8
-    
-    def __checksum(self, payload):
-        """Return checksum value for the payload given.
-        """
-        cs = 0
-        for b in payload:
-            cs ^= b
-        return cs
-        
+            
     def SetMessageType(self, outype=1):
         """Change GPS output type to NMEA or binary.
 
@@ -47,7 +39,7 @@ class venus838flpx(object):
         Response ACK or NACK
         """
         payload = [0x09, outype, 0x00]
-        resp = self.__send(payload, 0)
+        resp = self.__send(payload)
         
         if resp != 1:
             return -1
@@ -74,7 +66,7 @@ class venus838flpx(object):
         Response ACK or NACK
         """
         payload = [0x08, GGA, GSA, GSV, GLL, RMC, VTG, ZDA, 0x00]
-        resp = self.__send(payload, 0)
+        resp = self.__send(payload)
         
         if resp != 1:
             return -1
@@ -105,7 +97,7 @@ class venus838flpx(object):
         """
 
         payload = [0x0E, rate, 0x00]
-        resp = self.__send(payload, 0)
+        resp = self.__send(payload)
 
         if resp != 1:
             return -1
@@ -122,13 +114,12 @@ class venus838flpx(object):
             # If it return ACK then you know the rate selected is correct
             if self.__DEBUG:
                 print('Testing Baudrate: '),
-                print(n)
+                print n
             self.__device.baudrate = n
-            response = self.__send([0x02, 0x00], 0)
-
+            response = self.__send([0x02, 0x00])
             # If we receive ACK then set the new baudrate
             if (response == 1):
-                self.__send([0x05, 0x00, baudrate, 0], 0)
+                self.__send([0x05, 0x00, baudrate, 0])
                 self.__device.baudrate = rates[baudrate]
                 return 1
                 
@@ -155,45 +146,99 @@ class venus838flpx(object):
 
         """
         payload = [0x64, 0x17, mode, 0x00]
-        resp = self.__send(payload, 0)
+        resp = self.__send(payload)
         
         if resp != 1:
             return -1
 
-        return 1
+        return 1     
 
     def GetGNSSNavigationMode(self):
         """Get GPS Navigation mode
         MessageID, 0x64, 0x18
-        Response 0x8B
+        Response 0x64
+
+        The documentation is wrong about the response to get navigation mode. SUBID should be 0x8B according to it but the actual resposne sontain only the message id 0x64 followed byt the nav mode value.
         """
-        response = self.__send([0x64,0x18], 0x64)
+        if (self.__send([0x64,0x18]) == 1):
+            # ACK received then read answer
+            response = self.__receive()            
+            if (len(response) == 1):
+                # message corrupted
+                return -1
 
-        if (response < 4 or response[4] != 0x64):
-            return -1
+            if (response[4] == 0x64):
+                return response[5]
 
-        return response[5]
+        return -1
 
     def GetVersion(self):
         """Get software version of the GPS module
         MessageID, 0x02, 0x00
         Response 0x80
         """
-        response = self.__send([0x02,0x00], 0x80)
+        if (self.__send([0x02,0x00]) == 1):
+            # ACK received then read answer
+            response = self.__receive()    
+        
+            if (len(response) == 1):
+                # message corrupted
+                return 0
+            elif (response < 19 or response[4] != 0x80):
+                return 0
+        
+            print('Type: {0}'.format(response[4]))
+            Kversion = (response[5] << 24) | (response[6]<<16) | (response[7]<<8) | response[8];
+            print('Kversion: {0}'.format(Kversion))
+            ODMversion = (response[9]<<24)|(response[10]<<16)|(response[11]<<8)|response[12];
+            print('ODMversion: {0}'.format(ODMversion))
+            Revision = (response[13]<<24)|(response[14]<<16)|(response[15]<<8)|response[16];
+            print('Revision: {0}'.format(Revision))
+        
+        return 1
+  
+    def GetSerialDevice(self):
+        """Return serial device.
+        """
+        return self.__device
 
-        if (response < 19 or response[4] != 0x80):
-            print (response)
+    def ResetIOBuffer(self):
+        self.__device.reset_input_buffer();
+        self.__device.reset_output_buffer();  
+
+    def __checksum(self, payload):
+        """Return checksum value for the payload given.
+        """
+        cs = 0
+        for b in payload:
+            cs ^= b
+        return cs
+
+    def __ValidateBinaryMessage(self, buf):
+        """Validate that the message is complete and valid
+        """
+        l = len(buf)
+
+        start = [0xA0, 0xA1]
+        end = [0x0D, 0x0A]
+        
+        if self.__DEBUG:
+            #print(buf)
+            #print(buf[0:2])
+            #print(buf[-2:])     
+            pass
+
+        if buf[0:2] != start:
+            if self.__DEBUG:
+                print('Error: Message unrecognized.')
             return -1
-        
-        print('Type: {0}'.format(response[4]))
-        Kversion = (response[5] << 24) | (response[6]<<16) | (response[7]<<8) | response[8];
-        print('Kversion: {0}'.format(Kversion))
-        ODMversion = (response[9]<<24)|(response[10]<<16)|(response[11]<<8)|response[12];
-        print('ODMversion: {0}'.format(ODMversion))
-        Revision = (response[13]<<24)|(response[14]<<16)|(response[15]<<8)|response[16];
-        print('Revision: {0}'.format(Revision))
-        
-        return True   
+        elif buf[-2:] != end:
+            if self.__DEBUG:
+                print('Error: Message imcomplete.')
+            return -1
+        # check len
+        # check checksum
+        return 1
     
     def __receive(self, timeout=1):
         """Receive message from the GPS module. Return only binary answer messages. 
@@ -201,23 +246,16 @@ class venus838flpx(object):
         t = time() + timeout
         
         c = 0
-        e = 0
 
-        buffer = [0x00] * 4096
-        buffer_all = [0x00] * 4096
-
+        buffer = [0x00] * 256
         header = [160, 161]
         payloadlen = 0
 
         try:
             while time() < t:
-                while self.__device.inWaiting() != 0:
+                while self.__device.inWaiting() != 0 and time() < t:
 
                     char = ord(self.__device.read())    
-              
-                    if self.__DEBUG:
-                        buffer_all[e] = char
-                        e += 1
 
                     if (c == 0) and char != 160:
                         pass
@@ -244,22 +282,27 @@ class venus838flpx(object):
                             char = ord(self.__device.read())
                             buffer[c] = char
                             c += 1
+                        # ok we got the full message, now validate it
+                        if (self.__ValidateBinaryMessage(buffer[:c]) != 1):
+                            # message corrupted
+                            return -2
                         return buffer[:c]
         except:
             if self.__DEBUG:
-                print('<<<'),
-                print(buffer_all)
                 print('[Venus838FLPx]: Critical error while receiving data!')
-                self.__device.reset_input_buffer();
+            self.ResetIOBuffer()
             return -2
-        if self.__DEBUG:
-            print(buffer_all[:e])
 
-        self.__device.reset_input_buffer();
+        self.ResetIOBuffer()
         return -1
     
-    def __send(self, message, msgid):
-        """Send binary message to GPS module then wait for answer. Header, lenght, checksum and end are automaticly added.
+    def __send(self, message):
+        """Send binary message to GPS module then wait for ACK or NACK answer. Header, lenght, checksum and end are automaticly added.
+
+        returns,
+            error -1
+            nack 0
+            ack 1
         """
         c = len(message) + 7
         data = [0x00] * (c)
@@ -303,48 +346,34 @@ class venus838flpx(object):
                 print('Error: Receive command timeout.')
             sleep(0.1)
             return -1
-        
-        l = len(buf)
 
+        elif buf == -2:
+            if self.__DEBUG:
+                print('Error: response invalid.')
+            sleep(0.1)
+            return -1
+        
         result = None        
-
-        if buf[0] != 0xA0 or buf[1] != 0xA1:
-            if self.__DEBUG:
-                print('Error: Message unrecognized.')
-            result = -1
-        
-        elif buf[l-2] != 0x0D or buf[l-1] != 0x0A:
-            if self.__DEBUG:
-                print('Error: Message imcomplete.')
-            result = -1       
-        
-        elif buf[4] == 0x83:
+       
+        if buf[4] == 0x83:
             if self.__DEBUG:
                 print('ACK')
-            if msgid != 0:
-                buf = self.__receive()
-                result = buf
-            else:
-                result = 1
+            result = 1
                 
         elif buf[4] == 0x84:
             if self.__DEBUG:
                 print('NACK')
             result = 0
         else:
-            result = buf[4]
+            result = -1
 
         sleep(0.01)
         return result
-    
-    def GetSerialDevice(self):
-        """Return serial device.
-        """
-        return self.__device
-        
-    def __init__(self, PORT, UPDATE_RATE = 1):
+            
+    def __init__(self, PORT, UPDATE_RATE = 1, verbose = False):
         """Init GPS Module and set default configuration.
         """
+        self.__DEBUG = verbose
         print('Configure serial port...')
         self.__device = serial.Serial(PORT, baudrate=9600, timeout=1)
         self.SetDeviceBaudrate(baudrate=self.BAUDRATE_115200) # 115200
@@ -356,67 +385,3 @@ class venus838flpx(object):
         self.SetPositionUpdateRate(rate=UPDATE_RATE) # default 1hz
         print('Change navigation mode...')
         self.SetGNSSNavigationMode() # default auto
-
-'''
-# Test
-print('Testing venus838flpx class...')
-
-import pynmea2
-
-gps = venus838flpx('/dev/ttyO1', 1)
-
-device = None
-
-while device == None:
-    device = gps.GetSerialDevice()
-
-print('Binary mode: ')
-gps.SetMessageType()
-
-print('Set nav mode to 3: ')
-gps.SetGNSSNavigationMode(3)
-print('Navigation mode: {0}'.format(gps.GetGNSSNavigationMode()))
-
-print('Get firmware version: ')
-gps.GetVersion()
-
-c = 0
-
-lat = None
-lon = None
-speed = None
-time = None
-sats = None
-qual = None
-heading = None
-alt = None
-
-while c < 10:
-        c += 1
-        streamreader = pynmea2.NMEAStreamReader(device)
-        sample_data_count = 0
-
-        try:
-            for msg in streamreader.next():
-                #print(msg)
-                if msg.sentence_type == 'GGA':
-
-
-                    lat = msg.latitude
-                    lon = msg.longitude
-                    time = msg.timestamp
-                    sats = msg.num_sats
-                    qual = msg.gps_qual
-                    alt = msg.altitude
-
-                if msg.sentence_type == 'RMC':
-
-                    speed = msg.spd_over_grnd * 1.852
-                    heading = msg.true_course
-
-            print('Lat: {0}, Lon: {1}, Speed: {2}, Time: {3}, Sats: {4}, Quality: {5}, Heading: {6}'.format(lat, lon, speed, time, sats, qual, heading))
-
-        except:
-            raise
-            pass
-'''
