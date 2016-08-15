@@ -48,3 +48,5 @@ Temporary Items
 .vs/public/v14/.suo
 .vs/Project/v14/.suo
 *.sln
+*.pyc
+*.pyc

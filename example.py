@@ -4,10 +4,10 @@ from venus838flpx import *
 # Test
 print('Testing venus838flpx class...')
 
-GPS = venus838flpx('/dev/ttyO1', 20, True)
+GPS = venus838flpx('/dev/ttyO1', 1, True)
 
-print('Binary mode: ')
-GPS.SetMessageType()
+print('Set Binary mode...')
+GPS.SetMessageType(2)
 print('Set nav mode to 3: ')
 GPS.SetGNSSNavigationMode(3)
 print('\tNavigation mode: {0}'.format(GPS.GetGNSSNavigationMode()))
@@ -30,11 +30,19 @@ alt = None
 
 GPS.ResetIOBuffer()
 
-while c < 100:
+while c < 5:
         c += 1
+
+        GPS.ParseNavigationDataMessage();
+        sleep(1);
+        
+        '''
+        GPS.ParseBinaryMessage();
+        sleep(1);
+        
+        
         streamreader = pynmea2.NMEAStreamReader(GPS.GetSerialDevice())
         sample_data_count = 0
-
         try:
             for msg in streamreader.next():
                 #print(msg)
@@ -56,5 +64,6 @@ while c < 100:
             print('Lat: {0}, Lon: {1}, Speed: {2}, Time: {3}, Sats: {4}, Quality: {5}, Heading: {6}'.format(lat, lon, speed, time, sats, qual, heading))
 
         except:
-            raise
             pass
+        '''
+        

@@ -21,7 +21,70 @@ class venus838flpx(object):
     BAUDRATE_230400 = 6
     BAUDRATE_460800 = 7
     BAUDRATE_921600 = 8
+
+    def Test(self):      
+        #self.SetFactoryDefault()
+        return
+        
+    def SetFactoryDefault(self):
+       
+        payload = [4, 1]
+        resp = self.__send(payload)
+        
+        if resp != 1:
+            return -1
+
+        return 1 
+        
+    def ResetGNNS(self):
+       
+        payload = [1, 1, 16>>8, 16, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
+        resp = self.__send(payload)
+        
+        if resp != 1:
+            return -1
+
+        return 1 
+
+    def SetMessagesOutputRate(self):
+       
+        payload = [18, 10, 0, 0, 0, 0, 0, 0]
+        resp = self.__send(payload)
+        
+        if resp != 1:
+            return -1
+
+        return 1 
+        
+    def ParseNavigationDataMessage(self):
+        # in binary message mode only
+        buf = (self.__receive());
+                
+        if buf == -1:
+            return
+        elif buf[4] == 168:
             
+            fix = buf[5]
+            num_sv = buf[6]
+            gnss_week = buf[7] << 8 | buf[8];
+            tow = buf[9] << 24 | buf[10] << 16 | buf[11] << 8 | buf[12];
+            latitude = buf[13] << 24 | buf[14] << 16 | buf[15] << 8 | buf[16];
+            longitude = buf[17] << 24 | buf[18] << 16 | buf[19] << 8 | buf[20];
+            ell_altitude = buf[21] << 24 | buf[22] << 16 | buf[23] << 8 | buf[24];
+            sea_altitude = buf[25] << 24 | buf[26] << 16 | buf[27] << 8 | buf[28];
+            
+            print('Fix: {0}, Num SV: {1}, GNSS Week: {2} , GNSS TOW: {3} , Latitude: {4} , Longitude: {5} , Ellipsoid Altitude: {6} , Sea level Altitude: {7}'.format(fix, num_sv, gnss_week, tow, latitude, longitude, ell_altitude, sea_altitude))
+        
+    def SetNavigationInterval(self, interval = 7):
+    
+        payload = [17, interval, 0]
+        resp = self.__send(payload)
+        
+        if resp != 1:
+            return -1
+
+        return 1    
+    
     def SetMessageType(self, outype=1):
         """Change GPS output type to NMEA or binary.
 
@@ -116,6 +179,7 @@ class venus838flpx(object):
                 print('Testing Baudrate: '),
                 print n
             self.__device.baudrate = n
+            self.SetFactoryDefault()
             response = self.__send([0x02, 0x00])
             # If we receive ACK then set the new baudrate
             if (response == 1):
@@ -307,8 +371,6 @@ class venus838flpx(object):
         c = len(message) + 7
         data = [0x00] * (c)
 
-        message_len = pack('h',1)
-
         # Start
         data[0] = 0xA0
         data[1] = 0xA1
@@ -376,12 +438,15 @@ class venus838flpx(object):
         self.__DEBUG = verbose
         print('Configure serial port...')
         self.__device = serial.Serial(PORT, baudrate=9600, timeout=1)
-        self.SetDeviceBaudrate(baudrate=self.BAUDRATE_115200) # 115200
+        self.SetDeviceBaudrate(baudrate=self.BAUDRATE_9600)
+        self.Test()
+        #print('Reset GNNS...')
+        #self.ResetGNNS()
         print('Change message type...')
-        self.SetMessageType() # default NMEA
-        print('Configure NMEA message interval...')
-        self.SetNMEAMessageInterval() # default GGA and RMC
+        self.SetMessageType(2) # default NMEA
+        #print('Configure NMEA message interval...')
+        #self.SetNMEAMessageInterval() # default GGA and RMC
         print('Change update rate...')
         self.SetPositionUpdateRate(rate=UPDATE_RATE) # default 1hz
-        print('Change navigation mode...')
-        self.SetGNSSNavigationMode() # default auto
+        #print('Change navigation mode...')
+        #self.SetGNSSNavigationMode() # default auto
